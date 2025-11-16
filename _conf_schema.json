@@ -1,10 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Meme Stickers 配置",
-  "type": "object",
-  "description": "AstrBot 表情包插件的核心配置选项。",
-  "additionalProperties": false,
-  "properties": {
+
     "hub_url": {
       "title": "贴纸包中心地址",
       "type": "string",
@@ -144,18 +139,5 @@
       "default": "#505050",
       "description": "网格预览图边框颜色。"
     }
-  },
-  "required": [
-    "hub_url",
-    "github_raw_template",
-    "github_release_template",
-    "max_concurrent_downloads",
-    "request_timeout",
-    "retry_attempts",
-    "retry_delay",
-    "retry_backoff",
-    "prompt_timeout",
-    "render_font_family",
-    "render_font_size"
-  ]
+ 
 }
