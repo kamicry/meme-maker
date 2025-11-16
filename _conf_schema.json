@@ -1,143 +1,179 @@
 {
-
-    "hub_url": {
-      "title": "贴纸包中心地址",
-      "type": "string",
-      "default": "http://localhost:8888",
-      "description": "用于拉取在线贴纸包列表与更新信息的基础 URL。"
-    },
-    "proxy": {
-      "title": "HTTP 代理",
-      "type": "string",
-      "default": "",
-      "description": "为网络请求设置 HTTP/HTTPS 代理，例如 http://127.0.0.1:7890。留空表示不使用代理。"
-    },
-    "github_raw_template": {
-      "title": "GitHub Raw 模板",
-      "type": "string",
-      "default": "https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}",
-      "description": "用于从 GitHub 仓库读取原始文件的模板。可替换为镜像站点。"
-    },
-    "github_release_template": {
-      "title": "GitHub Release 模板",
-      "type": "string",
-      "default": "https://github.com/{owner}/{repo}/releases/download/{tag}/{filename}",
-      "description": "用于从 GitHub Release 下载压缩包的模板。"
-    },
-    "max_concurrent_downloads": {
-      "title": "并发下载数",
-      "type": "integer",
-      "default": 4,
-      "minimum": 1,
-      "description": "下载贴纸包或资源时允许的最大并发连接数。"
-    },
-    "request_timeout": {
-      "title": "请求超时 (秒)",
-      "type": "number",
-      "default": 30.0,
-      "minimum": 0,
-      "description": "HTTP 请求的超时时间。"
-    },
-    "retry_attempts": {
-      "title": "重试次数",
-      "type": "integer",
-      "default": 3,
-      "minimum": 0,
-      "description": "网络请求失败时的最大重试次数。"
-    },
-    "retry_delay": {
-      "title": "初始重试间隔 (秒)",
-      "type": "number",
-      "default": 1.5,
-      "minimum": 0,
-      "description": "首次重试前等待的秒数。"
-    },
-    "retry_backoff": {
-      "title": "重试指数倍率",
-      "type": "number",
-      "default": 2.0,
-      "minimum": 0,
-      "description": "每次重试后等待时间的倍数。"
-    },
-    "auto_update": {
-      "title": "自动更新贴纸包",
-      "type": "boolean",
-      "default": false,
-      "description": "启用后插件会周期性检查贴纸包更新。"
-    },
-    "force_update": {
-      "title": "强制刷新",
-      "type": "boolean",
-      "default": false,
-      "description": "与自动更新搭配使用，忽略缓存强制刷新内容。"
-    },
-    "prompt_timeout": {
-      "title": "提示等待超时 (秒)",
-      "type": "number",
-      "default": 60.0,
-      "minimum": 0,
-      "description": "生成或更新贴纸时交互提示的等待超时时间。"
-    },
-    "render_font_family": {
-      "title": "默认字体",
-      "type": "string",
-      "default": "Noto Sans CJK SC",
-      "description": "渲染文字贴纸时使用的字体名称。"
-    },
-    "render_font_size": {
-      "title": "默认字号",
-      "type": "integer",
-      "default": 48,
-      "minimum": 1,
-      "description": "渲染文字贴纸时使用的字号。"
-    },
-    "render_background_color": {
-      "title": "贴纸背景色",
-      "type": "string",
-      "default": "#FFFFFF",
-      "description": "贴纸背景颜色，支持 #RGB/#RRGGBB/#RRGGBBAA 或 RGBA 元组。"
-    },
-    "render_text_color": {
-      "title": "文字颜色",
-      "type": "string",
-      "default": "#222222",
-      "description": "贴纸文本的默认颜色。"
-    },
-    "render_accent_color": {
-      "title": "突出色",
-      "type": "string",
-      "default": "#FF6600",
-      "description": "用于强调元素（描边、进度条等）的颜色。"
-    },
-    "render_shadow_color": {
-      "title": "阴影颜色",
-      "type": "string",
-      "default": "#00000080",
-      "description": "贴纸阴影的颜色，最后两位表示透明度。"
-    },
-    "render_outline_color": {
-      "title": "描边颜色",
-      "type": "string",
-      "default": "#000000E6",
-      "description": "贴纸描边使用的 RGBA 颜色。"
-    },
-    "grid_background_color": {
-      "title": "网格背景颜色",
-      "type": "string",
-      "default": "#1A1A1CF0",
-      "description": "网格预览图背景颜色。"
-    },
-    "grid_text_color": {
-      "title": "网格文字颜色",
-      "type": "string",
-      "default": "#F0F0F0",
-      "description": "网格预览图文字颜色。"
-    },
-    "grid_border_color": {
-      "title": "网格边框颜色",
-      "type": "string",
-      "default": "#505050",
-      "description": "网格预览图边框颜色。"
-    }
- 
+  "hub_url": {
+    "description": "贴纸包中心地址",
+    "type": "string",
+    "default": "http://localhost:8888",
+    "hint": "用于拉取在线贴纸包列表与更新信息的基础 URL"
+  },
+  "proxy": {
+    "description": "HTTP 代理",
+    "type": "string",
+    "default": "",
+    "hint": "格式: http://127.0.0.1:7890，留空表示不使用代理"
+  },
+  "github_raw_template": {
+    "description": "GitHub Raw 模板",
+    "type": "string",
+    "default": "https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}",
+    "hint": "可替换为镜像站点"
+  },
+  "github_release_template": {
+    "description": "GitHub Release 模板",
+    "type": "string",
+    "default": "https://github.com/{owner}/{repo}/releases/download/{tag}/{filename}"
+  },
+  "max_concurrent_downloads": {
+    "description": "并发下载数",
+    "type": "int",
+    "default": 4,
+    "hint": "最小值为 1"
+  },
+  "request_timeout": {
+    "description": "请求超时 (秒)",
+    "type": "float",
+    "default": 30.0,
+    "hint": "HTTP 请求的超时时间"
+  },
+  "retry_attempts": {
+    "description": "重试次数",
+    "type": "int",
+    "default": 3,
+    "hint": "网络请求失败时的最大重试次数"
+  },
+  "retry_delay": {
+    "description": "初始重试间隔 (秒)",
+    "type": "float",
+    "default": 1.5,
+    "hint": "首次重试前等待的秒数"
+  },
+  "retry_backoff": {
+    "description": "重试指数倍率",
+    "type": "float",
+    "default": 2.0,
+    "hint": "每次重试后等待时间的倍数"
+  },
+  "auto_update": {
+    "description": "自动更新贴纸包",
+    "type": "bool",
+    "default": false,
+    "hint": "启用后插件会周期性检查贴纸包更新"
+  },
+  "force_update": {
+    "description": "强制刷新",
+    "type": "bool",
+    "default": false,
+    "hint": "与自动更新搭配使用，忽略缓存强制刷新内容"
+  },
+  "prompt_timeout": {
+    "description": "提示等待超时 (秒)",
+    "type": "float",
+    "default": 60.0,
+    "hint": "生成或更新贴纸时交互提示的等待超时时间"
+  },
+  "render_font_family": {
+    "description": "默认字体",
+    "type": "string",
+    "default": "Noto Sans CJK SC",
+    "hint": "渲染文字贴纸时使用的字体名称"
+  },
+  "render_font_size": {
+    "description": "默认字号",
+    "type": "int",
+    "default": 48,
+    "hint": "渲染文字贴纸时使用的字号"
+  },
+  "render_background_color": {
+    "description": "贴纸背景色",
+    "type": "string",
+    "default": "#FFFFFF",
+    "hint": "支持 #RGB/#RRGGBB/#RRGGBBAA 或 RGBA 元组"
+  },
+  "render_text_color": {
+    "description": "文字颜色",
+    "type": "string",
+    "default": "#222222",
+    "hint": "贴纸文本的默认颜色"
+  },
+  "render_accent_color": {
+    "description": "突出色",
+    "type": "string",
+    "default": "#FF6600",
+    "hint": "用于强调元素（描边、进度条等）的颜色"
+  },
+  "render_shadow_color": {
+    "description": "阴影颜色",
+    "type": "string",
+    "default": "#00000080",
+    "hint": "贴纸阴影的颜色，最后两位表示透明度"
+  },
+  "render_outline_color": {
+    "description": "描边颜色",
+    "type": "string",
+    "default": "#000000E6",
+    "hint": "贴纸描边使用的 RGBA 颜色"
+  },
+  "grid_background_color": {
+    "description": "网格背景颜色",
+    "type": "string",
+    "default": "#1A1A1CF0",
+    "hint": "网格预览图背景颜色"
+  },
+  "grid_text_color": {
+    "description": "网格文字颜色",
+    "type": "string",
+    "default": "#F0F0F0",
+    "hint": "网格预览图文字颜色"
+  },
+  "grid_border_color": {
+    "description": "网格边框颜色",
+    "type": "string",
+    "default": "#505050",
+    "hint": "网格预览图边框颜色"
+  },
+  "adaptive_text_sizing": {
+    "description": "是否自动调整字号",
+    "type": "bool",
+    "default": true
+  },
+  "enable_markdown_flow": {
+    "description": "是否启用 Markdown 格式",
+    "type": "bool",
+    "default": false
+  },
+  "show_success_messages": {
+    "description": "是否显示成功消息",
+    "type": "bool",
+    "default": true
+  },
+  "mention_user_on_render": {
+    "description": "生成表情时是否提及用户 (@xxx)",
+    "type": "bool",
+    "default": true
+  },
+  "retract_delay_ms": {
+    "description": "消息删除延迟时间 (毫秒)",
+    "type": "int",
+    "default": 0,
+    "hint": "0 表示不删除消息"
+  },
+  "default_curve_intensity": {
+    "description": "默认曲线强度",
+    "type": "float",
+    "default": 0.5
+  },
+  "enable_text_shadow": {
+    "description": "是否启用文字阴影效果",
+    "type": "bool",
+    "default": true
+  },
+  "persistence_enabled": {
+    "description": "是否保存用户的表情制作状态",
+    "type": "bool",
+    "default": true
+  },
+  "state_ttl_hours": {
+    "description": "用户状态保存时长 (小时)",
+    "type": "int",
+    "default": 24
+  }
 }
