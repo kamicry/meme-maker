@@ -422,44 +422,46 @@ class MemeStickersPlugin(Star):
         """
         return MessageEventResult().image(image_path)
         
-    @filter.command("meme")
-    async def meme_command(self, event: AstrMessageEvent):
-        """
-        Main meme command handler.
-        Provides help information and basic status.
-        """
-        message_parts = event.message_str.split()
-        
-        if len(message_parts) < 2:
-            help_text = (
-                "Meme Stickers Plugin\n"
-                "Commands:\n"
-                "  /meme list - List available sticker packs\n"
-                "  /meme status - Show plugin status\n"
-                "  /meme help - Show this help message"
-            )
-            yield event.plain_result(help_text)
-            return
-            
-        sub_command = message_parts[1].lower()
-        
-        if sub_command == "list":
-            async for msg in self._handle_list(event):
-                yield msg
-        elif sub_command == "status":
-            async for msg in self._handle_status(event):
-                yield msg
-        elif sub_command == "help":
-            help_text = (
-                "Meme Stickers Plugin\n"
-                "Commands:\n"
-                "  /meme list - List available sticker packs\n"
-                "  /meme status - Show plugin status\n"
-                "  /meme help - Show this help message"
-            )
-            yield event.plain_result(help_text)
-        else:
-            yield event.plain_result(f"Unknown subcommand: {sub_command}")
+    @filter.command_group("meme")
+    def meme(self):
+        """Meme Stickers commands"""
+        pass
+
+    @meme.command()
+    async def __default__(self, event: AstrMessageEvent):
+        """Default handler for /meme command"""
+        help_text = (
+            "Meme Stickers Plugin\n"
+            "Commands:\n"
+            "  /meme list - List available sticker packs\n"
+            "  /meme status - Show plugin status\n"
+            "  /meme help - Show this help message"
+        )
+        yield event.plain_result(help_text)
+
+    @meme.command("list")
+    async def list_packs(self, event: AstrMessageEvent):
+        """List available sticker packs"""
+        async for msg in self._handle_list(event):
+            yield msg
+
+    @meme.command("status")
+    async def show_status(self, event: AstrMessageEvent):
+        """Show plugin status"""
+        async for msg in self._handle_status(event):
+            yield msg
+
+    @meme.command("help")
+    async def show_help(self, event: AstrMessageEvent):
+        """Show help message"""
+        help_text = (
+            "Meme Stickers Plugin\n"
+            "Commands:\n"
+            "  /meme list - List available sticker packs\n"
+            "  /meme status - Show plugin status\n"
+            "  /meme help - Show this help message"
+        )
+        yield event.plain_result(help_text)
             
     async def _handle_list(self, event: AstrMessageEvent):
         """Handle list command"""

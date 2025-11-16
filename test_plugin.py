@@ -6,7 +6,7 @@
 import asyncio
 import json
 from pathlib import Path
-from main import MemeMakerPlugin, PackConfig, ShortcutConfig, HubPack
+from main import MemeStickersPlugin
 from unittest.mock import Mock
 
 class MockContext:
@@ -47,7 +47,7 @@ async def test_basic_functionality():
     
     # 测试帮助命令
     results = []
-    async for result in plugin.meme_command(event):
+    async for result in plugin.show_help(event):
         results.append(result)
     
     print(f"帮助命令结果: {len(results)} 个回复")
@@ -57,7 +57,7 @@ async def test_basic_functionality():
     # 测试列表命令
     event = MockEvent("/meme list")
     results = []
-    async for result in plugin.meme_command(event):
+    async for result in plugin.list_packs(event):
         results.append(result)
     
     print(f"列表命令结果: {len(results)} 个回复")
@@ -77,7 +77,7 @@ async def test_permission_system():
     # 测试普通用户
     normal_event = MockEvent("/meme list --online", "normal_user", False)
     results = []
-    async for result in plugin.meme_command(normal_event):
+    async for result in plugin.list_packs(normal_event):
         results.append(result)
     
     print(f"普通用户访问在线列表: {results[0]['content']}")
@@ -86,7 +86,7 @@ async def test_permission_system():
     admin_event = MockEvent("/meme list --online", "admin_user", True)
     admin_event.is_superuser = lambda: True
     results = []
-    async for result in plugin.meme_command(admin_event):
+    async for result in plugin.list_packs(admin_event):
         results.append(result)
     
     print(f"超级用户访问在线列表: {len(results)} 个回复")
@@ -116,7 +116,7 @@ async def test_session_management():
     admin_event.is_superuser = lambda: True
     
     results = []
-    async for result in plugin.meme_command(admin_event):
+    async for result in plugin.__default__(admin_event):
         results.append(result)
     
     print(f"删除确认: {results[0]['content']}")
@@ -129,7 +129,7 @@ async def test_session_management():
     # 测试确认
     confirm_event = MockEvent("yes", "admin_user", True)
     results = []
-    async for result in plugin.meme_command(confirm_event):
+    async for result in plugin.__default__(confirm_event):
         results.append(result)
     
     print(f"删除结果: {results[0]['content']}")
