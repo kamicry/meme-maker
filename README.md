@@ -64,9 +64,43 @@ pip install -r requirements.txt
 ### 基本命令
 
 #### 表情包生成
+
+**交互式生成**：
 ```bash
-/doge 这是一段文字        # 生成 doge 表情包
-/cat 可爱的猫咪          # 生成猫咪表情包
+/meme generate              # 开始交互式生成，会逐步提示选择包、贴纸和输入文本
+```
+
+**快速生成**：
+```bash
+/meme generate default doge "这是一段文字"     # 生成 doge 表情包
+/meme generate default cat "可爱的猫咪"        # 生成猫咪表情包
+```
+
+**高级选项**：
+```bash
+# 自定义位置
+/meme generate default doge "文本" -x 100 -y 50
+
+# 自定义对齐方式
+/meme generate default cat "文本" -a left -v top
+
+# 自定义颜色和描边
+/meme generate default think "文本" -c red --stroke-color white --stroke-width 2
+
+# 相对调整（基于当前位置）
+/meme generate default doge "文本" -x ^+10 -y ^-20
+
+# 自定义字体和大小
+/meme generate default cat "文本" -f "/path/to/font.ttf" -s 64
+
+# 调试模式（显示文本边界）
+/meme generate default doge "文本" --debug
+```
+
+**传统快捷方式**：
+```bash
+/doge 这是一段文字        # 使用快捷方式生成 doge 表情包（如果已注册）
+/cat 可爱的猫咪          # 使用快捷方式生成猫咪表情包（如果已注册）
 ```
 
 #### 表情包管理

@@ -4,9 +4,13 @@ import asyncio
 import hashlib
 import tempfile
 import shutil
+import shlex
+import argparse
+import re
+import io
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Any, Tuple, Union
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
@@ -14,8 +18,13 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
-import skia
-from PIL import Image, ImageDraw, ImageFont
+try:
+    import skia
+    SKIA_AVAILABLE = True
+except ImportError:
+    SKIA_AVAILABLE = False
+    logger.warning("skia-python not available, some features may be limited")
+from PIL import Image, ImageDraw, ImageFont, ImageColor
 
 @dataclass
 class ShortcutConfig:
@@ -59,9 +68,57 @@ class HubPack:
 class UserSession:
     """用户会话信息"""
     user_id: str
-    session_type: str  # 'delete_confirm', 'install_confirm', etc.
+    session_type: str  # 'delete_confirm', 'install_confirm', 'generate_pack', 'generate_sticker', 'generate_text', etc.
     data: Dict[str, Any]
     timeout: datetime
+
+@dataclass
+class StickerParams:
+    """表情包生成参数"""
+    pack: Optional[str] = None
+    sticker: Optional[str] = None
+    text: Optional[str] = None
+    x: Optional[int] = None
+    y: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    align: str = "center"
+    valign: str = "middle"
+    font: Optional[str] = None
+    font_size: Optional[int] = None
+    color: str = "black"
+    stroke_color: Optional[str] = None
+    stroke_width: int = 0
+    angle: float = 0.0
+    auto_resize: bool = True
+    debug: bool = False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'pack': self.pack,
+            'sticker': self.sticker,
+            'text': self.text,
+            'x': self.x,
+            'y': self.y,
+            'width': self.width,
+            'height': self.height,
+            'align': self.align,
+            'valign': self.valign,
+            'font': self.font,
+            'font_size': self.font_size,
+            'color': self.color,
+            'stroke_color': self.stroke_color,
+            'stroke_width': self.stroke_width,
+            'angle': self.angle,
+            'auto_resize': self.auto_resize,
+            'debug': self.debug
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'StickerParams':
+        """从字典创建"""
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
 
 @register("meme-maker", "kamicry", "表情包制作插件，支持动态快捷方式注册", "1.3.0")
 class MemeMakerPlugin(Star):
@@ -353,6 +410,17 @@ class MemeMakerPlugin(Star):
         
         return result
     
+    @filter.regex(r"^(?!/).*")
+    async def handle_session_message(self, event: AstrMessageEvent):
+        """处理非命令消息，检查是否有活跃会话"""
+        user_id = str(getattr(event, 'user_id', 'unknown'))
+        session = await self.get_session(user_id)
+        
+        # 如果有活跃的生成会话，处理会话
+        if session and session.session_type in ['generate_pack', 'generate_sticker', 'generate_text']:
+            async for result in self.handle_generate_session(event, session):
+                yield result
+    
     @filter.command("meme")
     async def meme_command(self, event: AstrMessageEvent):
         """表情包管理命令"""
@@ -368,6 +436,9 @@ class MemeMakerPlugin(Star):
 表情包管理命令使用说明：
 /meme list - 列出所有表情包
 /meme list --online - 列出在线表情包（管理员）
+/meme generate [包名] [贴纸名] [文本] [选项] - 生成表情包
+  选项: -x X -y Y -w WIDTH -h HEIGHT -a ALIGN -v VALIGN -f FONT -s SIZE -c COLOR --stroke-color COLOR --stroke-width N --debug
+  相对调整: 使用 ^ 前缀，如 -x ^+10 表示在原位置基础上增加10
 /meme install <包名> - 安装表情包
 /meme update <包名> - 更新表情包
 /meme delete <包名> - 删除表情包
@@ -393,9 +464,14 @@ class MemeMakerPlugin(Star):
                     await self.clear_session(user_id)
                     yield event.plain_result(message)
                     return
-            elif sub_command.lower() in ['no', 'n', '否', '取消']:
+            elif sub_command.lower() in ['no', 'n', '否', '取消', 'exit', 'quit', '退出']:
                 await self.clear_session(user_id)
                 yield event.plain_result("操作已取消")
+                return
+            elif session.session_type in ['generate_pack', 'generate_sticker', 'generate_text']:
+                # 处理生成会话
+                async for result in self.handle_generate_session(event, session):
+                    yield result
                 return
         
         # 处理正常命令
@@ -415,6 +491,9 @@ class MemeMakerPlugin(Star):
             await self.handle_reload_command(event)
         elif sub_command == "status":
             await self.handle_status_command(event)
+        elif sub_command == "generate":
+            async for result in self.handle_generate_command(event, message_parts):
+                yield result
         elif sub_command == "help":
             help_image_path = self.create_help_image()
             if help_image_path and Path(help_image_path).exists():
@@ -674,6 +753,370 @@ class MemeMakerPlugin(Star):
         """.strip()
         
         yield event.plain_result(text)
+    
+    async def handle_generate_command(self, event: AstrMessageEvent, message_parts: List[str]):
+        """处理生成命令"""
+        user_id = str(getattr(event, 'user_id', 'unknown'))
+        
+        # 解析命令行参数
+        args_str = event.message_str.split(maxsplit=2)
+        args_text = args_str[2] if len(args_str) > 2 else ""
+        
+        # 使用shlex分割参数，支持引号
+        try:
+            args = shlex.split(args_text) if args_text else []
+        except ValueError as e:
+            yield event.plain_result(f"参数解析错误: {str(e)}")
+            return
+        
+        # 解析参数
+        params = await self.parse_generate_args(args)
+        
+        if isinstance(params, str):
+            # 解析失败，返回错误信息
+            yield event.plain_result(params)
+            return
+        
+        # 检查是否需要交互式提示
+        if not params.pack:
+            # 开始交互式流程 - 请求包名
+            await self.create_session(user_id, 'generate_pack', {'params': params.to_dict()})
+            
+            # 列出可用的包
+            pack_list = "\n".join([f"  • {name} ({pack.display_name})" 
+                                   for name, pack in self.packs.items() if pack.enabled])
+            
+            if not pack_list:
+                await self.clear_session(user_id)
+                yield event.plain_result("没有可用的表情包。请先使用 /meme list 查看或安装表情包。")
+                return
+            
+            yield event.plain_result(
+                f"请选择表情包:\n{pack_list}\n\n"
+                f"回复表情包名称，或输入 'exit' 退出 (超时: 5分钟)"
+            )
+            return
+        
+        if not params.sticker:
+            # 开始交互式流程 - 请求贴纸名
+            await self.create_session(user_id, 'generate_sticker', {'params': params.to_dict()})
+            
+            # 列出该包中的贴纸
+            pack = self.packs.get(params.pack)
+            if not pack:
+                await self.clear_session(user_id)
+                yield event.plain_result(f"表情包 {params.pack} 不存在")
+                return
+            
+            sticker_files = await self.get_sticker_list(params.pack)
+            if not sticker_files:
+                await self.clear_session(user_id)
+                yield event.plain_result(f"表情包 {params.pack} 中没有可用的贴纸")
+                return
+            
+            sticker_list = "\n".join([f"  • {s}" for s in sticker_files])
+            yield event.plain_result(
+                f"请选择贴纸 (来自 {pack.display_name}):\n{sticker_list}\n\n"
+                f"回复贴纸名称，或输入 'exit' 退出 (超时: 5分钟)"
+            )
+            return
+        
+        if not params.text:
+            # 开始交互式流程 - 请求文本
+            await self.create_session(user_id, 'generate_text', {'params': params.to_dict()})
+            yield event.plain_result(
+                f"请输入文本内容:\n\n"
+                f"回复文本内容，或输入 'exit' 退出 (超时: 5分钟)"
+            )
+            return
+        
+        # 所有参数齐全，生成表情包
+        async for result in self.render_sticker(event, params):
+            yield result
+    
+    async def handle_generate_session(self, event: AstrMessageEvent, session: UserSession):
+        """处理生成会话的交互"""
+        user_id = str(getattr(event, 'user_id', 'unknown'))
+        user_input = event.message_str.strip()
+        
+        # 检查退出命令
+        if user_input.lower() in ['exit', 'quit', '退出', '取消']:
+            await self.clear_session(user_id)
+            yield event.plain_result("已退出生成流程")
+            return
+        
+        params = StickerParams.from_dict(session.data['params'])
+        
+        if session.session_type == 'generate_pack':
+            # 用户输入了包名
+            if user_input not in self.packs:
+                yield event.plain_result(f"表情包 {user_input} 不存在，请重新输入")
+                return
+            
+            params.pack = user_input
+            
+            # 进入下一步 - 请求贴纸
+            session.data['params'] = params.to_dict()
+            session.session_type = 'generate_sticker'
+            session.timeout = datetime.now() + self.session_timeout
+            
+            sticker_files = await self.get_sticker_list(params.pack)
+            if not sticker_files:
+                await self.clear_session(user_id)
+                yield event.plain_result(f"表情包 {params.pack} 中没有可用的贴纸")
+                return
+            
+            pack = self.packs[params.pack]
+            sticker_list = "\n".join([f"  • {s}" for s in sticker_files])
+            yield event.plain_result(
+                f"请选择贴纸 (来自 {pack.display_name}):\n{sticker_list}\n\n"
+                f"回复贴纸名称，或输入 'exit' 退出"
+            )
+        
+        elif session.session_type == 'generate_sticker':
+            # 用户输入了贴纸名
+            sticker_files = await self.get_sticker_list(params.pack)
+            if user_input not in sticker_files:
+                yield event.plain_result(f"贴纸 {user_input} 不存在，请重新输入")
+                return
+            
+            params.sticker = user_input
+            
+            # 进入下一步 - 请求文本
+            session.data['params'] = params.to_dict()
+            session.session_type = 'generate_text'
+            session.timeout = datetime.now() + self.session_timeout
+            
+            yield event.plain_result(
+                f"请输入文本内容:\n\n"
+                f"回复文本内容，或输入 'exit' 退出"
+            )
+        
+        elif session.session_type == 'generate_text':
+            # 用户输入了文本
+            params.text = user_input
+            
+            # 清除会话
+            await self.clear_session(user_id)
+            
+            # 生成表情包
+            async for result in self.render_sticker(event, params):
+                yield result
+    
+    async def parse_generate_args(self, args: List[str]) -> Union[StickerParams, str]:
+        """解析生成命令参数"""
+        params = StickerParams()
+        
+        # 使用argparse解析参数
+        parser = argparse.ArgumentParser(add_help=False, exit_on_error=False)
+        parser.add_argument('pack', nargs='?', default=None)
+        parser.add_argument('sticker', nargs='?', default=None)
+        parser.add_argument('text', nargs='?', default=None)
+        parser.add_argument('-x', '--x', type=str, default=None)
+        parser.add_argument('-y', '--y', type=str, default=None)
+        parser.add_argument('-w', '--width', type=str, default=None)
+        parser.add_argument('-h', '--height', type=str, default=None)
+        parser.add_argument('-a', '--align', choices=['left', 'center', 'right'], default='center')
+        parser.add_argument('-v', '--valign', choices=['top', 'middle', 'bottom'], default='middle')
+        parser.add_argument('-f', '--font', type=str, default=None)
+        parser.add_argument('-s', '--font-size', type=str, default=None)
+        parser.add_argument('-c', '--color', type=str, default='black')
+        parser.add_argument('--stroke-color', type=str, default=None)
+        parser.add_argument('--stroke-width', type=int, default=0)
+        parser.add_argument('--angle', type=float, default=0.0)
+        parser.add_argument('--no-resize', action='store_true', default=False)
+        parser.add_argument('--debug', action='store_true', default=False)
+        
+        try:
+            parsed = parser.parse_args(args)
+            
+            params.pack = parsed.pack
+            params.sticker = parsed.sticker
+            params.text = parsed.text
+            params.align = parsed.align
+            params.valign = parsed.valign
+            params.font = parsed.font
+            params.color = parsed.color
+            params.stroke_color = parsed.stroke_color
+            params.stroke_width = parsed.stroke_width
+            params.angle = parsed.angle
+            params.auto_resize = not parsed.no_resize
+            params.debug = parsed.debug
+            
+            # 解析相对/绝对参数
+            if parsed.x:
+                params.x = self.parse_relative_param(parsed.x, None)
+            if parsed.y:
+                params.y = self.parse_relative_param(parsed.y, None)
+            if parsed.width:
+                params.width = self.parse_relative_param(parsed.width, None)
+            if parsed.height:
+                params.height = self.parse_relative_param(parsed.height, None)
+            if parsed.font_size:
+                params.font_size = self.parse_relative_param(parsed.font_size, None)
+            
+            return params
+            
+        except Exception as e:
+            return f"参数解析错误: {str(e)}\n\n用法: /meme generate [包名] [贴纸名] [文本] [-x X] [-y Y] [-w WIDTH] [-h HEIGHT] [-a ALIGN] [-v VALIGN] [-f FONT] [-s SIZE] [-c COLOR]"
+    
+    def parse_relative_param(self, value: str, base: Optional[int]) -> Optional[int]:
+        """解析相对/绝对参数
+        
+        支持格式：
+        - 123: 绝对值
+        - ^+10: 相对于base增加10
+        - ^-10: 相对于base减少10
+        - ^10: 相对于base (等同于^+10)
+        """
+        if value is None:
+            return None
+        
+        value = value.strip()
+        
+        # 相对调整
+        if value.startswith('^'):
+            if base is None:
+                logger.warning(f"相对调整 {value} 但基准值为空，将使用0作为基准")
+                base = 0
+            
+            rel_value = value[1:]
+            if rel_value.startswith('+') or rel_value.startswith('-'):
+                return base + int(rel_value)
+            else:
+                return base + int(rel_value)
+        
+        # 绝对值
+        return int(value)
+    
+    async def get_sticker_list(self, pack_name: str) -> List[str]:
+        """获取表情包中的贴纸列表"""
+        pack_dir = self.packs_dir / pack_name
+        if not pack_dir.exists():
+            return []
+        
+        stickers = []
+        for ext in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']:
+            for img_path in pack_dir.glob(f'*.{ext}'):
+                stickers.append(img_path.stem)
+        
+        return sorted(list(set(stickers)))
+    
+    async def render_sticker(self, event: AstrMessageEvent, params: StickerParams):
+        """渲染表情包"""
+        try:
+            # 加载模板图片
+            pack_dir = self.packs_dir / params.pack
+            sticker_path = None
+            
+            for ext in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']:
+                test_path = pack_dir / f"{params.sticker}.{ext}"
+                if test_path.exists():
+                    sticker_path = test_path
+                    break
+            
+            if not sticker_path:
+                yield event.plain_result(f"找不到贴纸文件: {params.sticker}")
+                return
+            
+            # 加载图片
+            base_image = Image.open(sticker_path).convert('RGBA')
+            img_width, img_height = base_image.size
+            
+            # 创建绘图对象
+            draw = ImageDraw.Draw(base_image)
+            
+            # 加载字体
+            font = self.load_font(params.font, params.font_size or 48)
+            
+            # 计算文本位置和大小
+            text_bbox = draw.textbbox((0, 0), params.text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            
+            # 计算文本位置
+            if params.x is not None:
+                x = params.x
+            else:
+                if params.align == 'left':
+                    x = 10
+                elif params.align == 'right':
+                    x = img_width - text_width - 10
+                else:  # center
+                    x = (img_width - text_width) // 2
+            
+            if params.y is not None:
+                y = params.y
+            else:
+                if params.valign == 'top':
+                    y = 10
+                elif params.valign == 'bottom':
+                    y = img_height - text_height - 10
+                else:  # middle
+                    y = (img_height - text_height) // 2
+            
+            # 绘制描边
+            if params.stroke_color and params.stroke_width > 0:
+                for adj_x in range(-params.stroke_width, params.stroke_width + 1):
+                    for adj_y in range(-params.stroke_width, params.stroke_width + 1):
+                        if adj_x != 0 or adj_y != 0:
+                            draw.text((x + adj_x, y + adj_y), params.text, 
+                                    font=font, fill=params.stroke_color)
+            
+            # 绘制文本
+            draw.text((x, y), params.text, font=font, fill=params.color)
+            
+            # 调试模式 - 绘制边框
+            if params.debug:
+                draw.rectangle([x, y, x + text_width, y + text_height], 
+                             outline='red', width=2)
+            
+            # 保存图片
+            output_dir = self.data_dir / "output"
+            output_dir.mkdir(exist_ok=True)
+            
+            output_path = output_dir / f"meme_{hash(params.text)}_{datetime.now().timestamp()}.png"
+            base_image.save(output_path, 'PNG')
+            
+            # 返回图片
+            yield event.image_result(str(output_path))
+            
+            logger.info(f"成功生成表情包: {params.pack}/{params.sticker} - {params.text}")
+            
+        except Exception as e:
+            logger.error(f"生成表情包失败: {e}")
+            import traceback
+            traceback.print_exc()
+            yield event.plain_result(f"生成表情包失败: {str(e)}")
+    
+    def load_font(self, font_name: Optional[str], size: int) -> ImageFont.FreeTypeFont:
+        """加载字体"""
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "C:\\Windows\\Fonts\\arial.ttf",
+        ]
+        
+        # 如果指定了字体名称，优先尝试
+        if font_name:
+            try:
+                return ImageFont.truetype(font_name, size)
+            except Exception as e:
+                logger.warning(f"无法加载字体 {font_name}: {e}")
+        
+        # 尝试系统字体
+        for font_path in font_paths:
+            try:
+                if Path(font_path).exists():
+                    return ImageFont.truetype(font_path, size)
+            except Exception:
+                continue
+        
+        # 降级到默认字体
+        logger.warning("无法加载任何TrueType字体，使用默认字体")
+        return ImageFont.load_default()
     
     async def save_config(self):
         """保存配置到文件"""
@@ -955,6 +1398,8 @@ class MemeMakerPlugin(Star):
             # 帮助内容
             help_content = [
                 ("基本命令:", "header"),
+                ("/meme generate [包] [贴纸] [文本]", "code"),
+                ("  生成表情包（交互式或快速生成）", "text"),
                 ("/meme list", "code"),
                 ("  列出所有本地表情包", "text"),
                 ("/meme list --online", "code"),
@@ -976,10 +1421,9 @@ class MemeMakerPlugin(Star):
                 ("  显示此帮助信息", "text"),
                 ("", "text"),
                 ("使用说明:", "header"),
-                ("• 表情包安装后会自动注册快捷方式", "text"),
-                ("• 使用 /<命令> <文本> 来生成表情包", "text"),
+                ("• 使用 /meme generate 交互式生成表情", "text"),
+                ("• 支持自定义位置、颜色、字体等选项", "text"),
                 ("• 管理员操作需要相应权限", "text"),
-                ("• 删除操作需要确认，输入 'yes' 确认", "text"),
                 ("• 会话超时时间为5分钟", "text"),
             ]
             
