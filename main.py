@@ -1,15 +1,21 @@
 import os
 import json
 import asyncio
+import hashlib
+import tempfile
+import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
+import skia
+from PIL import Image, ImageDraw, ImageFont
 
 @dataclass
 class ShortcutConfig:
@@ -28,10 +34,34 @@ class PackConfig:
     enabled: bool = True
     shortcuts: List[ShortcutConfig] = None
     checksum: Optional[str] = None
+    url: Optional[str] = None  # 在线下载URL
+    version: Optional[str] = None
+    author: Optional[str] = None
     
     def __post_init__(self):
         if self.shortcuts is None:
             self.shortcuts = []
+
+@dataclass
+class HubPack:
+    """在线表情包信息"""
+    name: str
+    display_name: str
+    description: str
+    url: str
+    version: str
+    author: str
+    size: int
+    preview_url: Optional[str] = None
+    downloads: int = 0
+
+@dataclass
+class UserSession:
+    """用户会话信息"""
+    user_id: str
+    session_type: str  # 'delete_confirm', 'install_confirm', etc.
+    data: Dict[str, Any]
+    timeout: datetime
 
 @register("meme-maker", "kamicry", "表情包制作插件，支持动态快捷方式注册", "1.3.0")
 class MemeMakerPlugin(Star):
@@ -42,6 +72,14 @@ class MemeMakerPlugin(Star):
         self.config_file = self.data_dir / "config.json"
         self.packs: Dict[str, PackConfig] = {}
         self.registered_commands: Dict[str, str] = {}  # command -> pack_name
+        self.user_sessions: Dict[str, UserSession] = {}  # user_id -> session
+        self.hub_cache: List[HubPack] = []
+        self.hub_cache_time: Optional[datetime] = None
+        
+        # 配置
+        self.hub_url = "http://localhost:8888"  # 本地测试API地址
+        self.session_timeout = timedelta(minutes=5)
+        self.hub_cache_timeout = timedelta(hours=1)
         
     async def initialize(self):
         """插件初始化"""
@@ -57,7 +95,77 @@ class MemeMakerPlugin(Star):
         # 注册所有启用的快捷方式
         await self.register_all_shortcuts()
         
+        # 启动会话清理任务
+        asyncio.create_task(self.cleanup_sessions())
+        
         logger.info(f"MemeMaker 插件初始化完成，已加载 {len(self.packs)} 个表情包")
+    
+    def is_superuser(self, event: AstrMessageEvent) -> bool:
+        """检查用户是否为超级用户"""
+        # 尝试多种方式检查权限
+        if hasattr(event, 'is_superuser') and callable(event.is_superuser):
+            return event.is_superuser()
+        elif hasattr(event, 'sender') and hasattr(event.sender, 'role'):
+            return event.sender.role in ['admin', 'superuser', 'owner']
+        elif hasattr(event, 'user_id'):
+            # 这里可以根据实际情况配置超级用户ID列表
+            superuser_ids = self.get_configured_superusers()
+            return str(event.user_id) in superuser_ids
+        return False
+    
+    def get_configured_superusers(self) -> List[str]:
+        """获取配置的超级用户ID列表"""
+        # 可以从配置文件中读取超级用户列表
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    return config.get('superusers', [])
+        except Exception:
+            pass
+        return []
+    
+    async def create_session(self, user_id: str, session_type: str, data: Dict[str, Any]) -> UserSession:
+        """创建用户会话"""
+        session = UserSession(
+            user_id=user_id,
+            session_type=session_type,
+            data=data,
+            timeout=datetime.now() + self.session_timeout
+        )
+        self.user_sessions[user_id] = session
+        return session
+    
+    async def get_session(self, user_id: str) -> Optional[UserSession]:
+        """获取用户会话"""
+        session = self.user_sessions.get(user_id)
+        if session and datetime.now() < session.timeout:
+            return session
+        elif session:
+            # 会话已过期，清理
+            del self.user_sessions[user_id]
+        return None
+    
+    async def clear_session(self, user_id: str):
+        """清除用户会话"""
+        if user_id in self.user_sessions:
+            del self.user_sessions[user_id]
+    
+    async def cleanup_sessions(self):
+        """定期清理过期会话"""
+        while True:
+            try:
+                now = datetime.now()
+                expired_users = [
+                    user_id for user_id, session in self.user_sessions.items()
+                    if now >= session.timeout
+                ]
+                for user_id in expired_users:
+                    del self.user_sessions[user_id]
+                await asyncio.sleep(60)  # 每分钟清理一次
+            except Exception as e:
+                logger.error(f"清理会话时出错: {e}")
+                await asyncio.sleep(60)
     
     async def load_config(self):
         """加载配置文件"""
@@ -252,21 +360,53 @@ class MemeMakerPlugin(Star):
         
         if len(message_parts) < 2:
             # 显示帮助信息
-            help_text = """
+            help_image_path = self.create_help_image()
+            if help_image_path and Path(help_image_path).exists():
+                yield event.image_result(help_image_path)
+            else:
+                help_text = """
 表情包管理命令使用说明：
 /meme list - 列出所有表情包
+/meme list --online - 列出在线表情包（管理员）
+/meme install <包名> - 安装表情包
+/meme update <包名> - 更新表情包
+/meme delete <包名> - 删除表情包
 /meme enable <包名> - 启用表情包
 /meme disable <包名> - 禁用表情包
-/meme reload - 重新加载配置
-/meme status - 显示状态信息
-            """.strip()
-            yield event.plain_result(help_text)
+/meme help - 显示帮助信息
+                """.strip()
+                yield event.plain_result(help_text)
             return
         
         sub_command = message_parts[1].lower()
         
+        # 检查是否有会话需要处理
+        user_id = str(getattr(event, 'user_id', 'unknown'))
+        session = await self.get_session(user_id)
+        
+        if session:
+            # 处理会话响应
+            if sub_command.lower() in ['yes', 'y', '是', '确认']:
+                if session.session_type == 'delete_confirm':
+                    pack_name = session.data['pack_name']
+                    success, message = await self.delete_pack(pack_name)
+                    await self.clear_session(user_id)
+                    yield event.plain_result(message)
+                    return
+            elif sub_command.lower() in ['no', 'n', '否', '取消']:
+                await self.clear_session(user_id)
+                yield event.plain_result("操作已取消")
+                return
+        
+        # 处理正常命令
         if sub_command == "list":
-            await self.handle_list_command(event)
+            await self.handle_list_command(event, message_parts[2:] if len(message_parts) > 2 else [])
+        elif sub_command == "install":
+            await self.handle_install_command(event, message_parts)
+        elif sub_command == "update":
+            await self.handle_update_command(event, message_parts)
+        elif sub_command == "delete":
+            await self.handle_delete_command(event, message_parts)
         elif sub_command == "enable":
             await self.handle_enable_command(event, message_parts)
         elif sub_command == "disable":
@@ -275,29 +415,190 @@ class MemeMakerPlugin(Star):
             await self.handle_reload_command(event)
         elif sub_command == "status":
             await self.handle_status_command(event)
+        elif sub_command == "help":
+            help_image_path = self.create_help_image()
+            if help_image_path and Path(help_image_path).exists():
+                yield event.image_result(help_image_path)
+            else:
+                yield event.plain_result("帮助图片生成失败，请查看控制台日志")
         else:
             yield event.plain_result(f"未知命令: {sub_command}")
     
-    async def handle_list_command(self, event: AstrMessageEvent):
+    async def handle_list_command(self, event: AstrMessageEvent, args: List[str]):
         """处理列表命令"""
-        if not self.packs:
-            yield event.plain_result("暂无表情包")
+        is_online = '--online' in args
+        
+        if is_online:
+            # 在线列表 - 需要管理员权限
+            if not self.is_superuser(event):
+                yield event.plain_result("查看在线表情包需要管理员权限")
+                return
+            
+            yield event.plain_result("正在获取在线表情包列表...")
+            hub_packs = await self.fetch_hub_packs()
+            
+            if not hub_packs:
+                yield event.plain_result("无法获取在线表情包列表")
+                return
+            
+            # 创建在线包的预览图
+            pack_configs = []
+            for hub_pack in hub_packs:
+                pack_configs.append(PackConfig(
+                    name=hub_pack.name,
+                    display_name=hub_pack.display_name,
+                    description=hub_pack.description,
+                    enabled=False,  # 在线包默认未安装
+                    shortcuts=[],
+                    url=hub_pack.url,
+                    version=hub_pack.version,
+                    author=hub_pack.author
+                ))
+            
+            image_path = self.create_pack_grid_image(pack_configs, "在线表情包列表")
+            if image_path and Path(image_path).exists():
+                yield event.image_result(image_path)
+                
+                # 同时发送文字说明
+                text = f"找到 {len(hub_packs)} 个在线表情包：\n\n"
+                for i, hub_pack in enumerate(hub_packs[:10]):  # 只显示前10个
+                    status = "✅ 已安装" if hub_pack.name in self.packs else "⬇️ 可安装"
+                    text += f"{status} {hub_pack.display_name} ({hub_pack.name})\n"
+                    text += f"  版本: {hub_pack.version} | 作者: {hub_pack.author}\n"
+                    text += f"  大小: {hub_pack.size // 1024}KB | 下载: {hub_pack.downloads}次\n\n"
+                
+                if len(hub_packs) > 10:
+                    text += f"... 还有 {len(hub_packs) - 10} 个表情包\n"
+                text += "使用 /meme install <包名> 来安装表情包"
+                
+                yield event.plain_result(text)
+            else:
+                # 降级到文字显示
+                text = f"在线表情包列表 ({len(hub_packs)}个)：\n\n"
+                for hub_pack in hub_packs:
+                    status = "✅ 已安装" if hub_pack.name in self.packs else "⬇️ 可安装"
+                    text += f"{status} {hub_pack.display_name}\n"
+                    text += f"  包名: {hub_pack.name}\n"
+                    text += f"  版本: {hub_pack.version} | 作者: {hub_pack.author}\n\n"
+                
+                yield event.plain_result(text)
+        
+        else:
+            # 本地列表
+            if not self.packs:
+                yield event.plain_result("暂无本地表情包，使用 /meme list --online 查看可安装的表情包")
+                return
+            
+            # 创建本地包预览图
+            image_path = self.create_pack_grid_image(list(self.packs.values()), "本地表情包列表")
+            if image_path and Path(image_path).exists():
+                yield event.image_result(image_path)
+            
+            # 同时发送详细信息
+            text = f"本地表情包列表 ({len(self.packs)}个)：\n\n"
+            for pack_name, pack in self.packs.items():
+                status = "✅ 启用" if pack.enabled else "❌ 禁用"
+                shortcuts = [s.command for s in pack.shortcuts if s.enabled]
+                text += f"{status} {pack.display_name} ({pack_name})\n"
+                if shortcuts:
+                    text += f"  快捷方式: {', '.join(shortcuts)}\n"
+                if pack.version:
+                    text += f"  版本: {pack.version}\n"
+                if pack.author:
+                    text += f"  作者: {pack.author}\n"
+                text += "\n"
+            
+            yield event.plain_result(text.rstrip())
+    
+    async def handle_install_command(self, event: AstrMessageEvent, message_parts: List[str]):
+        """处理安装命令"""
+        if not self.is_superuser(event):
+            yield event.plain_result("安装表情包需要管理员权限")
             return
         
-        text = "表情包列表：\n"
-        for pack_name, pack in self.packs.items():
-            status = "✅ 启用" if pack.enabled else "❌ 禁用"
-            shortcuts = [s.command for s in pack.shortcuts if s.enabled]
-            text += f"\n{pack.display_name} ({pack_name}) - {status}"
-            if shortcuts:
-                text += f"\n  快捷方式: {', '.join(shortcuts)}"
+        if len(message_parts) < 3:
+            yield event.plain_result("请指定要安装的包名\n用法: /meme install <包名>")
+            return
         
-        yield event.plain_result(text)
+        pack_name = message_parts[2]
+        
+        # 检查是否已存在
+        if pack_name in self.packs:
+            yield event.plain_result(f"表情包 {pack_name} 已存在，使用 /meme update {pack_name} 来更新")
+            return
+        
+        yield event.plain_result(f"正在搜索表情包 {pack_name}...")
+        
+        # 获取在线包信息
+        hub_packs = await self.fetch_hub_packs()
+        target_pack = None
+        for hub_pack in hub_packs:
+            if hub_pack.name == pack_name:
+                target_pack = hub_pack
+                break
+        
+        if not target_pack:
+            yield event.plain_result(f"在线找不到表情包 {pack_name}")
+            return
+        
+        yield event.plain_result(f"开始下载表情包 {target_pack.display_name}...")
+        
+        # 下载并安装
+        success = await self.download_pack(target_pack)
+        if success:
+            yield event.plain_result(f"✅ 成功安装表情包 {pack_name}\n快捷方式已自动注册")
+        else:
+            yield event.plain_result(f"❌ 安装表情包 {pack_name} 失败")
+    
+    async def handle_update_command(self, event: AstrMessageEvent, message_parts: List[str]):
+        """处理更新命令"""
+        if not self.is_superuser(event):
+            yield event.plain_result("更新表情包需要管理员权限")
+            return
+        
+        if len(message_parts) < 3:
+            yield event.plain_result("请指定要更新的包名\n用法: /meme update <包名>")
+            return
+        
+        pack_name = message_parts[2]
+        
+        yield event.plain_result(f"正在更新表情包 {pack_name}...")
+        
+        success, message = await self.update_pack(pack_name)
+        yield event.plain_result(message)
+    
+    async def handle_delete_command(self, event: AstrMessageEvent, message_parts: List[str]):
+        """处理删除命令"""
+        if not self.is_superuser(event):
+            yield event.plain_result("删除表情包需要管理员权限")
+            return
+        
+        if len(message_parts) < 3:
+            yield event.plain_result("请指定要删除的包名\n用法: /meme delete <包名>")
+            return
+        
+        pack_name = message_parts[2]
+        pack = self.packs.get(pack_name)
+        
+        if not pack:
+            yield event.plain_result(f"表情包 {pack_name} 不存在")
+            return
+        
+        # 创建确认会话
+        user_id = str(getattr(event, 'user_id', 'unknown'))
+        await self.create_session(user_id, 'delete_confirm', {'pack_name': pack_name})
+        
+        yield event.plain_result(
+            f"⚠️ 确认删除表情包 {pack.display_name} ({pack_name})？\n"
+            f"这将删除所有相关文件和配置！\n\n"
+            f"回复 'yes' 确认删除，或回复 'no' 取消\n"
+            f"(会话超时时间: 5分钟)"
+        )
     
     async def handle_enable_command(self, event: AstrMessageEvent, message_parts: List[str]):
         """处理启用命令"""
         if len(message_parts) < 3:
-            yield event.plain_result("请指定要启用的包名")
+            yield event.plain_result("请指定要启用的包名\n用法: /meme enable <包名>")
             return
         
         pack_name = message_parts[2]
@@ -316,12 +617,12 @@ class MemeMakerPlugin(Star):
         await self.register_pack_shortcuts(pack_name, pack)
         await self.save_config()
         
-        yield event.plain_result(f"已启用表情包 {pack_name}")
+        yield event.plain_result(f"✅ 已启用表情包 {pack_name}")
     
     async def handle_disable_command(self, event: AstrMessageEvent, message_parts: List[str]):
         """处理禁用命令"""
         if len(message_parts) < 3:
-            yield event.plain_result("请指定要禁用的包名")
+            yield event.plain_result("请指定要禁用的包名\n用法: /meme disable <包名>")
             return
         
         pack_name = message_parts[2]
@@ -340,7 +641,7 @@ class MemeMakerPlugin(Star):
         await self.unregister_pack_shortcuts(pack_name)
         await self.save_config()
         
-        yield event.plain_result(f"已禁用表情包 {pack_name}")
+        yield event.plain_result(f"✅ 已禁用表情包 {pack_name}")
     
     async def handle_reload_command(self, event: AstrMessageEvent):
         """处理重载命令"""
@@ -404,6 +705,304 @@ class MemeMakerPlugin(Star):
             
         except Exception as e:
             logger.error(f"保存配置失败: {e}")
+    
+    async def fetch_hub_packs(self, force_refresh: bool = False) -> List[HubPack]:
+        """获取在线表情包列表"""
+        now = datetime.now()
+        
+        # 检查缓存
+        if not force_refresh and self.hub_cache_time and (now - self.hub_cache_time) < self.hub_cache_timeout:
+            return self.hub_cache
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(f"{self.hub_url}/packs")
+                response.raise_for_status()
+                
+                data = response.json()
+                hub_packs = []
+                
+                for pack_data in data.get('packs', []):
+                    hub_packs.append(HubPack(
+                        name=pack_data['name'],
+                        display_name=pack_data['display_name'],
+                        description=pack_data['description'],
+                        url=pack_data['url'],
+                        version=pack_data['version'],
+                        author=pack_data['author'],
+                        size=pack_data['size'],
+                        preview_url=pack_data.get('preview_url'),
+                        downloads=pack_data.get('downloads', 0)
+                    ))
+                
+                self.hub_cache = hub_packs
+                self.hub_cache_time = now
+                logger.info(f"成功获取 {len(hub_packs)} 个在线表情包")
+                return hub_packs
+                
+        except Exception as e:
+            logger.error(f"获取在线表情包失败: {e}")
+            return []
+    
+    async def download_pack(self, hub_pack: HubPack, progress_callback=None) -> bool:
+        """下载并安装表情包"""
+        try:
+            pack_dir = self.packs_dir / hub_pack.name
+            pack_dir.mkdir(exist_ok=True)
+            
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                # 下载压缩包
+                response = await client.get(hub_pack.url)
+                response.raise_for_status()
+                
+                # 保存到临时文件
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+                    tmp_file.write(response.content)
+                    tmp_path = tmp_file.name
+                
+                # 解压（这里简化处理，实际需要根据压缩格式处理）
+                import zipfile
+                with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
+                    zip_ref.extractall(pack_dir)
+                
+                # 清理临时文件
+                os.unlink(tmp_path)
+                
+                # 更新配置
+                await self.add_pack_from_hub(hub_pack)
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"下载表情包失败 {hub_pack.name}: {e}")
+            return False
+    
+    async def add_pack_from_hub(self, hub_pack: HubPack):
+        """从在线包信息添加到配置"""
+        shortcuts = []
+        pack_dir = self.packs_dir / hub_pack.name
+        
+        # 扫描包目录中的图片文件，自动生成快捷方式
+        if pack_dir.exists():
+            for ext in ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp']:
+                for img_path in pack_dir.glob(ext):
+                    name = img_path.stem
+                    shortcuts.append(ShortcutConfig(
+                        name=name,
+                        command=name,
+                        description=f"{hub_pack.display_name} - {name}",
+                        enabled=True
+                    ))
+        
+        pack = PackConfig(
+            name=hub_pack.name,
+            display_name=hub_pack.display_name,
+            description=hub_pack.description,
+            enabled=True,
+            shortcuts=shortcuts,
+            url=hub_pack.url,
+            version=hub_pack.version,
+            author=hub_pack.author
+        )
+        
+        self.packs[hub_pack.name] = pack
+        await self.save_config()
+        await self.register_pack_shortcuts(hub_pack.name, pack)
+    
+    async def delete_pack(self, pack_name: str) -> Tuple[bool, str]:
+        """删除表情包"""
+        try:
+            pack = self.packs.get(pack_name)
+            if not pack:
+                return False, f"表情包 {pack_name} 不存在"
+            
+            # 注销快捷方式
+            await self.unregister_pack_shortcuts(pack_name)
+            
+            # 删除配置
+            del self.packs[pack_name]
+            
+            # 删除文件
+            pack_dir = self.packs_dir / pack_name
+            if pack_dir.exists():
+                shutil.rmtree(pack_dir)
+            
+            # 保存配置
+            await self.save_config()
+            
+            return True, f"成功删除表情包 {pack_name}"
+            
+        except Exception as e:
+            logger.error(f"删除表情包失败 {pack_name}: {e}")
+            return False, f"删除表情包失败: {str(e)}"
+    
+    async def update_pack(self, pack_name: str) -> Tuple[bool, str]:
+        """更新表情包"""
+        try:
+            pack = self.packs.get(pack_name)
+            if not pack or not pack.url:
+                return False, f"表情包 {pack_name} 不支持更新"
+            
+            # 获取在线信息
+            hub_packs = await self.fetch_hub_packs()
+            hub_pack = None
+            for hp in hub_packs:
+                if hp.name == pack_name:
+                    hub_pack = hp
+                    break
+            
+            if not hub_pack:
+                return False, f"在线找不到表情包 {pack_name}"
+            
+            # 删除旧包
+            await self.unregister_pack_shortcuts(pack_name)
+            pack_dir = self.packs_dir / pack_name
+            if pack_dir.exists():
+                shutil.rmtree(pack_dir)
+            
+            # 下载新包
+            success = await self.download_pack(hub_pack)
+            if success:
+                return True, f"成功更新表情包 {pack_name}"
+            else:
+                return False, f"更新表情包 {pack_name} 失败"
+                
+        except Exception as e:
+            logger.error(f"更新表情包失败 {pack_name}: {e}")
+            return False, f"更新表情包失败: {str(e)}"
+    
+    def create_pack_grid_image(self, packs: List[PackConfig], title: str = "表情包列表") -> str:
+        """创建表情包网格预览图"""
+        try:
+            # 设置图片参数
+            img_width = 800
+            img_height = 600
+            grid_cols = 3
+            grid_rows = min(4, (len(packs) + grid_cols - 1) // grid_cols)
+            
+            # 创建画布
+            image = Image.new('RGB', (img_width, img_height), color='white')
+            draw = ImageDraw.Draw(image)
+            
+            # 尝试加载字体
+            try:
+                font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+                font_text = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+            except:
+                font_title = ImageFont.load_default()
+                font_text = ImageFont.load_default()
+            
+            # 绘制标题
+            draw.text((20, 20), title, fill='black', font=font_title)
+            
+            # 绘制网格
+            cell_width = (img_width - 60) // grid_cols
+            cell_height = (img_height - 100) // grid_rows
+            
+            for i, pack in enumerate(packs[:grid_rows * grid_cols]):
+                row = i // grid_cols
+                col = i % grid_cols
+                
+                x = 30 + col * cell_width
+                y = 80 + row * cell_height
+                
+                # 绘制边框
+                draw.rectangle([x, y, x + cell_width - 10, y + cell_height - 10], outline='gray')
+                
+                # 绘制包信息
+                status = "✅" if pack.enabled else "❌"
+                text_lines = [
+                    f"{status} {pack.display_name}",
+                    f"({pack.name})",
+                    f"快捷方式: {len(pack.shortcuts)}个"
+                ]
+                
+                for j, line in enumerate(text_lines):
+                    draw.text((x + 10, y + 10 + j * 25), line, fill='black', font=font_text)
+            
+            # 保存图片
+            output_path = self.data_dir / "temp_pack_grid.png"
+            image.save(output_path)
+            return str(output_path)
+            
+        except Exception as e:
+            logger.error(f"创建网格图片失败: {e}")
+            return ""
+    
+    def create_help_image(self) -> str:
+        """创建帮助图片"""
+        try:
+            img_width = 800
+            img_height = 1000
+            
+            # 创建画布
+            image = Image.new('RGB', (img_width, img_height), color='white')
+            draw = ImageDraw.Draw(image)
+            
+            # 尝试加载字体
+            try:
+                font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+                font_text = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+                font_code = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 16)
+            except:
+                font_title = ImageFont.load_default()
+                font_text = ImageFont.load_default()
+                font_code = ImageFont.load_default()
+            
+            # 绘制标题
+            draw.text((20, 20), "表情包管理插件帮助", fill='black', font=font_title)
+            
+            # 帮助内容
+            help_content = [
+                ("基本命令:", "header"),
+                ("/meme list", "code"),
+                ("  列出所有本地表情包", "text"),
+                ("/meme list --online", "code"),
+                ("  列出在线表情包（需要管理员权限）", "text"),
+                ("", "text"),
+                ("/meme install <包名>", "code"),
+                ("  安装指定的在线表情包", "text"),
+                ("/meme update <包名>", "code"),
+                ("  更新指定的表情包", "text"),
+                ("/meme delete <包名>", "code"),
+                ("  删除指定的表情包（需要确认）", "text"),
+                ("", "text"),
+                ("/meme enable <包名>", "code"),
+                ("  启用指定的表情包", "text"),
+                ("/meme disable <包名>", "code"),
+                ("  禁用指定的表情包", "text"),
+                ("", "text"),
+                ("/meme help", "code"),
+                ("  显示此帮助信息", "text"),
+                ("", "text"),
+                ("使用说明:", "header"),
+                ("• 表情包安装后会自动注册快捷方式", "text"),
+                ("• 使用 /<命令> <文本> 来生成表情包", "text"),
+                ("• 管理员操作需要相应权限", "text"),
+                ("• 删除操作需要确认，输入 'yes' 确认", "text"),
+                ("• 会话超时时间为5分钟", "text"),
+            ]
+            
+            y_pos = 80
+            for line, line_type in help_content:
+                if line_type == "header":
+                    draw.text((20, y_pos), line, fill='black', font=font_title)
+                    y_pos += 40
+                elif line_type == "code":
+                    draw.text((40, y_pos), line, fill='blue', font=font_code)
+                    y_pos += 30
+                else:  # text
+                    draw.text((60, y_pos), line, fill='black', font=font_text)
+                    y_pos += 25
+            
+            # 保存图片
+            output_path = self.data_dir / "help_image.png"
+            image.save(output_path)
+            return str(output_path)
+            
+        except Exception as e:
+            logger.error(f"创建帮助图片失败: {e}")
+            return ""
     
     async def terminate(self):
         """插件销毁时清理"""
