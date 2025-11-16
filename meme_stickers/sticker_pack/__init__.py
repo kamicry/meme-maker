@@ -12,7 +12,16 @@ from .models import (
     HubPackInfo,
 )
 from .pack import Pack, PackError
-from .hub import HubClient, HubError
+from .hub import (
+    HubClient,
+    HubError,
+    GitHubSource,
+    HubPackReference,
+    HubIndex,
+    fetch_hub_index,
+    fetch_pack_manifest,
+    construct_github_raw_url,
+)
 from .update import PackUpdater, UpdateError
 from .manager import (
     StickerPackManager,
@@ -33,6 +42,12 @@ __all__ = [
     "PackError",
     "HubClient",
     "HubError",
+    "GitHubSource",
+    "HubPackReference",
+    "HubIndex",
+    "fetch_hub_index",
+    "fetch_pack_manifest",
+    "construct_github_raw_url",
     "PackUpdater",
     "UpdateError",
     "StickerPackManager",

@@ -394,6 +394,69 @@ class StickerPackManager:
             return await self.hub_client.fetch_packs(force_refresh)
         except HubError as e:
             raise ManagerError(f"Failed to fetch hub packs: {e}")
+    
+    async def get_hub_packs(self) -> List["HubPackReference"]:
+        """
+        Fetch available packs from GitHub-based hub.
+        
+        Returns:
+            List of HubPackReference objects
+            
+        Raises:
+            ManagerError: If fetch fails
+        """
+        from .hub import fetch_hub_index
+        try:
+            return await fetch_hub_index(self.hub_client.hub_url)
+        except HubError as e:
+            raise ManagerError(f"Failed to fetch hub packs: {e}")
+    
+    async def install_from_hub(self, pack_slug: str, github_raw_template: str = "https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}") -> bool:
+        """
+        Install a pack from GitHub-based hub using its slug.
+        
+        Args:
+            pack_slug: Slug of the pack in the hub
+            github_raw_template: Template for GitHub raw URLs
+            
+        Returns:
+            True if installation was successful
+            
+        Raises:
+            ManagerError: If installation fails
+        """
+        from .hub import fetch_hub_index, fetch_pack_manifest
+        
+        try:
+            packs = await fetch_hub_index(self.hub_client.hub_url)
+            
+            pack_ref = None
+            for ref in packs:
+                if ref.slug == pack_slug:
+                    pack_ref = ref
+                    break
+            
+            if not pack_ref:
+                raise ManagerError(f"Pack not found in hub: {pack_slug}")
+            
+            manifest = await fetch_pack_manifest(pack_ref.source, github_raw_template)
+            
+            hub_pack_info = HubPackInfo(
+                name=pack_ref.slug,
+                display_name=manifest.get("display_name", pack_ref.slug),
+                description=manifest.get("description", ""),
+                url="",
+                version=manifest.get("version", "1.0.0"),
+                author=manifest.get("author", "Unknown"),
+            )
+            
+            await self.install_pack(hub_pack_info, pack_slug)
+            return True
+        
+        except HubError as e:
+            raise ManagerError(f"Failed to install pack from hub: {e}")
+        except Exception as e:
+            raise ManagerError(f"Unexpected error installing pack from hub: {e}")
 
 
 def create_pack_manager(base_path: Path, hub_url: str = "http://localhost:8888") -> StickerPackManager:

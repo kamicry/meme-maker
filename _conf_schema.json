@@ -2,8 +2,14 @@
   "hub_url": {
     "description": "贴纸包中心地址",
     "type": "string",
-    "default": "http://localhost:8888",
-    "hint": "用于拉取在线贴纸包列表与更新信息的基础 URL"
+    "default": "https://raw.githubusercontent.com/lgc-NB2Dev/meme-stickers-hub/main/manifest.json",
+    "hint": "Hub manifest.json 文件的 URL"
+  },
+  "hub_enable": {
+    "description": "启用 Hub 功能",
+    "type": "bool",
+    "default": true,
+    "hint": "是否启用从 Hub 拉取和安装贴纸包"
   },
   "proxy": {
     "description": "HTTP 代理",

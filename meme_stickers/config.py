@@ -37,6 +37,7 @@ from .consts import (
     DEFAULT_GRID_BACKGROUND_COLOR,
     DEFAULT_GRID_BORDER_COLOR,
     DEFAULT_GRID_TEXT_COLOR,
+    DEFAULT_HUB_ENABLE,
     DEFAULT_HUB_URL,
     DEFAULT_HTTP_TIMEOUT,
     DEFAULT_MAX_CONCURRENCY,
@@ -149,6 +150,7 @@ class Config:
 
     plugin_name: str = PLUGIN_NAME
     hub_url: str = DEFAULT_HUB_URL
+    hub_enable: bool = DEFAULT_HUB_ENABLE
     proxy: Optional[str] = DEFAULT_PROXY
     github_raw_template: str = DEFAULT_GITHUB_RAW_TEMPLATE
     github_release_template: str = DEFAULT_GITHUB_RELEASE_TEMPLATE
@@ -278,6 +280,7 @@ class Config:
         return cls(
             plugin_name=plugin_name,
             hub_url=_get_required_str("hub_url", DEFAULT_HUB_URL),
+            hub_enable=_get_bool("hub_enable", DEFAULT_HUB_ENABLE),
             proxy=_get_optional_str("proxy", DEFAULT_PROXY),
             github_raw_template=_get_required_str(
                 "github_raw_template", DEFAULT_GITHUB_RAW_TEMPLATE
@@ -315,6 +318,7 @@ class Config:
         return {
             "plugin_name": self.plugin_name,
             "hub_url": self.hub_url,
+            "hub_enable": self.hub_enable,
             "proxy": self.proxy,
             "github_raw_template": self.github_raw_template,
             "github_release_template": self.github_release_template,
