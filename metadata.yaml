@@ -3,4 +3,4 @@ display_name: Meme Stickers
 desc: AstrBot 表情包管理与渲染插件，提供贴纸包下载、更新与生成能力。
 version: v2.0.0
 author: kamicry
-repo: https://github.com/kamicry/meme-stickers
+repo: https://github.com/kamicry/meme-maker
