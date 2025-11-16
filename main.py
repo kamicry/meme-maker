@@ -444,9 +444,11 @@ class MemeStickersPlugin(Star):
         sub_command = message_parts[1].lower()
         
         if sub_command == "list":
-            await self._handle_list(event)
+            async for msg in self._handle_list(event):
+                yield msg
         elif sub_command == "status":
-            await self._handle_status(event)
+            async for msg in self._handle_status(event):
+                yield msg
         elif sub_command == "help":
             help_text = (
                 "Meme Stickers Plugin\n"
