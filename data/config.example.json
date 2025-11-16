@@ -1,0 +1,64 @@
+{
+  "packs": {
+    "default": {
+      "display_name": "默认表情包",
+      "description": "默认表情包集合",
+      "enabled": true,
+      "shortcuts": [
+        {
+          "name": "doge",
+          "command": "doge",
+          "description": "发送 doge 表情",
+          "enabled": true
+        },
+        {
+          "name": "cat",
+          "command": "cat",
+          "description": "发送猫咪表情",
+          "enabled": true
+        },
+        {
+          "name": "think",
+          "command": "think",
+          "description": "发送思考表情",
+          "enabled": false
+        }
+      ],
+      "checksum": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "custom": {
+      "display_name": "自定义表情包",
+      "description": "用户自定义表情包",
+      "enabled": true,
+      "shortcuts": [
+        {
+          "name": "meme1",
+          "command": "meme1",
+          "description": "自定义表情1",
+          "enabled": true
+        },
+        {
+          "name": "meme2",
+          "command": "meme2",
+          "description": "自定义表情2",
+          "enabled": true
+        }
+      ],
+      "checksum": null
+    },
+    "anime": {
+      "display_name": "动漫表情包",
+      "description": "动漫风格表情包",
+      "enabled": false,
+      "shortcuts": [
+        {
+          "name": "anime1",
+          "command": "anime1",
+          "description": "动漫表情1",
+          "enabled": true
+        }
+      ],
+      "checksum": null
+    }
+  }
+}
