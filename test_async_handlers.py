@@ -48,7 +48,7 @@ async def test_list_command():
     
     # Test async generator iteration
     results = []
-    async for result in plugin.meme_command(event):
+    async for result in plugin.list_packs(event):
         results.append(result)
         print(f"  Got result: {result['type']}")
     
@@ -73,7 +73,7 @@ async def test_status_command():
     
     # Test async generator iteration
     results = []
-    async for result in plugin.meme_command(event):
+    async for result in plugin.show_status(event):
         results.append(result)
         print(f"  Got result: {result['type']}")
     
@@ -98,7 +98,7 @@ async def test_help_command():
     
     # Test async generator iteration
     results = []
-    async for result in plugin.meme_command(event):
+    async for result in plugin.show_help(event):
         results.append(result)
         print(f"  Got result: {result['type']}")
     
@@ -123,7 +123,7 @@ async def test_no_subcommand():
     
     # Test async generator iteration
     results = []
-    async for result in plugin.meme_command(event):
+    async for result in plugin.__default__(event):
         results.append(result)
         print(f"  Got result: {result['type']}")
     
