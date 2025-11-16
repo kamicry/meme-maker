@@ -13,7 +13,7 @@ from datetime import datetime
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
-from astrbot.api.config import AstrBotConfig
+from astrbot.api import AstrBotConfig
 from astrbot.api import logger
 
 
