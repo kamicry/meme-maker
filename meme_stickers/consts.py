@@ -13,7 +13,7 @@ from typing import Tuple
 PLUGIN_NAME = "meme_stickers"
 
 # Hub / network defaults
-DEFAULT_HUB_URL = "http://localhost:8888"
+DEFAULT_HUB_URL = "https://raw.githubusercontent.com/lgc-NB2Dev/meme-stickers-hub/main/manifest.json"
 DEFAULT_PROXY = None
 DEFAULT_GITHUB_RAW_TEMPLATE = "https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
 DEFAULT_GITHUB_RELEASE_TEMPLATE = (
@@ -27,6 +27,7 @@ DEFAULT_RETRY_BACKOFF = 2.0
 DEFAULT_PROMPT_TIMEOUT = 60.0
 DEFAULT_AUTO_UPDATE = False
 DEFAULT_FORCE_UPDATE = False
+DEFAULT_HUB_ENABLE = True
 
 # Rendering defaults
 DEFAULT_FONT_FAMILY = "Noto Sans CJK SC"
