@@ -1,302 +1,318 @@
-# Meme Maker 表情包制作插件
+# Meme Stickers Plugin for AstrBot
 
-一个功能强大的 AstrBot 表情包制作插件，支持动态快捷方式注册、多包管理、在线表情包中心和完整的权限管理系统。
+A modular and extensible AstrBot plugin for sticker pack management with comprehensive lifecycle management, configuration handling, and auto-update capabilities.
 
-## 功能特性
+## Features
 
-### 🎨 表情包管理
-- **动态快捷方式注册** - 根据配置文件自动注册/注销命令，无需重启
-- **多包管理** - 支持多个表情包集合，可独立启用/禁用
-- **在线表情包中心** - 浏览、安装、更新在线表情包
-- **包操作** - 完整的安装、更新、删除、启用、禁用功能
-- **热重载** - 支持运行时重载配置，即时生效
+### 🎨 Sticker Pack Management
+- **Pack Discovery** - Automatically discovers and loads sticker packs from directory
+- **Metadata Support** - Each pack has rich metadata (name, version, author, description)
+- **Pack Filtering** - Enable/disable packs individually
+- **Dynamic Reload** - Reload packs without restarting
 
-### 🔐 权限与安全
-- **权限检查系统** - 支持超级用户权限验证
-- **会话管理** - 危险操作需要确认，支持超时处理
-- **安全删除** - 删除操作需要用户确认，防止误操作
+### ⚙️ Configuration
+- **ConfigWrapper** - Type-safe configuration management
+- **JSON Configuration** - Easy-to-edit configuration file
+- **Default Values** - Sensible defaults when config is missing
+- **Property Accessors** - Convenient access to common settings
 
-### 🖼️ 视觉界面
-- **网格预览图** - 自动生成表情包网格预览图片
-- **帮助图片** - 生成可视化的帮助文档
-- **状态显示** - 清晰的状态图标和信息展示
+### 🔄 Auto-Update
+- **Background Tasks** - Async background task for automatic updates
+- **Configurable** - Enable/disable via configuration
+- **Force Update** - Optional force update mode
+- **Graceful Shutdown** - Proper task cancellation on plugin termination
 
-### 🚀 技术特性
-- **异步操作** - 全面支持异步，不阻塞主线程
-- **错误重试** - 内置重试机制，提高稳定性
-- **缓存机制** - 在线数据缓存，减少网络请求
-- **模块化设计** - 清晰的代码结构，易于扩展
+### 🏗️ Architecture
+- **Modular Design** - Clean separation of concerns
+- **Lifecycle Hooks** - Proper initialize/terminate handling
+- **Error Handling** - Graceful error handling with logging
+- **Type Safety** - Full type hints throughout
 
-## 安装说明
+## Installation
 
-### 1. 环境要求
+### Requirements
 
 - Python 3.8+
-- AstrBot 框架
-- Pillow (用于图片生成)
+- AstrBot framework
 
-### 2. 依赖安装
+### Setup
 
-插件需要以下依赖包，请确保安装：
-
+1. Copy the plugin to your AstrBot plugins directory:
 ```bash
-pip install skia-python>=129.0.0
-pip install cookit>=1.8.0
-pip install httpx>=0.27.0
-pip install tenacity>=9.0.0
-pip install Pillow>=10.0.0
+cp -r meme_stickers /path/to/astrbot/plugins/
 ```
 
-或者使用 requirements.txt：
+2. AstrBot will automatically load and initialize the plugin on startup.
 
-```bash
-pip install -r requirements.txt
+## Directory Structure
+
+```
+data/plugins/meme_stickers/     # Auto-created on first run
+├── config.json                 # Plugin configuration
+└── packs/                      # Sticker packs directory
+    ├── pack1/
+    │   ├── metadata.json      # Pack metadata
+    │   └── stickers/          # Sticker images
+    │       ├── sticker1.png
+    │       └── sticker2.png
+    └── pack2/
+        └── ...
 ```
 
-### 3. 插件安装
+## Configuration
 
-1. 将插件目录放置到 AstrBot 的插件目录
-2. 重启 AstrBot 或重新加载插件
-3. 插件会自动创建数据目录和默认配置
+The plugin uses a `config.json` file with the following structure:
 
-## 使用指南
-
-### 基本命令
-
-#### 表情包生成
-
-**交互式生成**：
-```bash
-/meme generate              # 开始交互式生成，会逐步提示选择包、贴纸和输入文本
-```
-
-**快速生成**：
-```bash
-/meme generate default doge "这是一段文字"     # 生成 doge 表情包
-/meme generate default cat "可爱的猫咪"        # 生成猫咪表情包
-```
-
-**高级选项**：
-```bash
-# 自定义位置
-/meme generate default doge "文本" -x 100 -y 50
-
-# 自定义对齐方式
-/meme generate default cat "文本" -a left -v top
-
-# 自定义颜色和描边
-/meme generate default think "文本" -c red --stroke-color white --stroke-width 2
-
-# 相对调整（基于当前位置）
-/meme generate default doge "文本" -x ^+10 -y ^-20
-
-# 自定义字体和大小
-/meme generate default cat "文本" -f "/path/to/font.ttf" -s 64
-
-# 调试模式（显示文本边界）
-/meme generate default doge "文本" --debug
-```
-
-**传统快捷方式**：
-```bash
-/doge 这是一段文字        # 使用快捷方式生成 doge 表情包（如果已注册）
-/cat 可爱的猫咪          # 使用快捷方式生成猫咪表情包（如果已注册）
-```
-
-#### 表情包管理
-```bash
-/meme list               # 列出所有本地表情包
-/meme list --online      # 列出在线表情包（需要管理员权限）
-/meme install <包名>     # 安装指定的在线表情包
-/meme update <包名>      # 更新指定的表情包
-/meme delete <包名>      # 删除指定的表情包（需要确认）
-/meme enable <包名>      # 启用指定的表情包
-/meme disable <包名>     # 禁用指定的表情包
-/meme reload             # 重新加载配置
-/meme status             # 显示插件状态
-/meme help               # 显示帮助信息（图片版）
-```
-
-### 高级功能
-
-#### 在线表情包中心
-插件支持从在线中心浏览和安装表情包：
-
-1. **浏览在线表情包**
-   ```bash
-   /meme list --online
-   ```
-   - 显示所有可用的在线表情包
-   - 包含版本、作者、大小等信息
-   - 自动生成预览网格图
-
-2. **安装表情包**
-   ```bash
-   /meme install anime_meme
-   ```
-   - 自动下载并解压表情包
-   - 扫描并注册快捷方式
-   - 更新配置文件
-
-3. **更新表情包**
-   ```bash
-   /meme update anime_meme
-   ```
-   - 检查在线版本更新
-   - 保留用户配置
-   - 自动更新快捷方式
-
-#### 权限管理
-插件实现了完整的权限检查系统：
-
-- **超级用户操作** - 在线浏览、安装、更新、删除需要管理员权限
-- **会话确认** - 删除操作需要用户确认，防止误操作
-- **超时处理** - 确认会话5分钟后自动过期
-
-#### 图片生成功能
-插件可以生成各种预览图片：
-
-- **表情包网格图** - 显示所有表情包的状态和基本信息
-- **帮助图片** - 生成可视化的使用说明
-- **自动降级** - 图片生成失败时自动降级到文字显示
-
-## 配置说明
-
-### 配置文件结构
 ```json
 {
-  "packs": {
-    "表情包名": {
-      "display_name": "显示名称",
-      "description": "描述信息",
-      "enabled": true,
-      "shortcuts": [
-        {
-          "name": "命令名",
-          "command": "触发命令",
-          "description": "命令描述",
-          "enabled": true
-        }
-      ],
-      "url": "在线下载地址",
-      "version": "版本号",
-      "author": "作者",
-      "checksum": "文件校验和"
-    }
-  },
-  "superusers": ["用户ID1", "用户ID2"]
+  "auto_update": false,
+  "force_update": false,
+  "hub_url": "http://localhost:8888",
+  "cache_timeout": 3600,
+  "packs": {}
 }
 ```
 
-### 数据目录结构
-```
-data/
-├── config.json          # 主配置文件
-├── config.example.json  # 示例配置文件
-├── packs/              # 表情包目录
-│   ├── default/        # 默认表情包
-│   │   ├── doge.png    # 表情图片
-│   │   ├── cat.png
-│   │   └── README.md   # 包说明
-│   └── anime/          # 动漫表情包
-│       ├── anime1.png
-│       └── anime2.png
-└── output/             # 生成输出目录
-    ├── temp_pack_grid.png    # 临时网格图
-    └── help_image.png        # 帮助图片
+### Configuration Options
+
+- **auto_update** - Enable automatic pack updates (default: false)
+- **force_update** - Force update even if unchanged (default: false)
+- **hub_url** - URL for pack downloads (default: http://localhost:8888)
+- **cache_timeout** - Cache timeout in seconds (default: 3600)
+- **packs** - Pack-specific configuration (default: {})
+
+## Sticker Pack Format
+
+Each sticker pack is a directory containing:
+
+### metadata.json
+```json
+{
+  "name": "pack_name",
+  "display_name": "Friendly Pack Name",
+  "description": "Pack description",
+  "version": "1.0.0",
+  "author": "Author Name",
+  "enabled": true,
+  "url": "https://example.com/pack.zip",
+  "checksum": "abc123..."
+}
 ```
 
-## 开发和测试
+### Sticker Files
+- Located in `stickers/` subdirectory
+- Supported formats: `.png`, `.jpg`, `.jpeg`, `.gif`
+- Files are named `<sticker_name>.<ext>`
 
-### 测试脚本
-插件提供了完整的测试脚本：
+## Commands
+
+### `/meme`
+Shows help message with available commands.
+
+### `/meme list`
+Lists all available sticker packs with their status and sticker count.
+
+Example output:
+```
+Available Sticker Packs:
+  [✓] Animals (animals) - 5 sticker(s) - v1.0.0
+  [✗] Memes (memes) - 10 sticker(s) - v1.2.0
+```
+
+### `/meme status`
+Shows plugin status including:
+- Data directory path
+- Packs directory path
+- Number of loaded packs
+- Number of enabled packs
+- Auto-update status
+
+### `/meme help`
+Shows detailed help information.
+
+## Development
+
+### Running Tests
+
+Comprehensive smoke tests are included:
 
 ```bash
-# 运行功能测试
-python test_plugin.py
-
-# 运行功能演示
-python demo_plugin.py
-
-# 启动模拟API服务器（用于测试在线功能）
-python mock_hub_server.py
+python test_smoke.py
 ```
 
-### 开发指南
-1. **添加新表情包** - 在 packs 目录下创建新文件夹，放入图片文件
-2. **配置快捷方式** - 在配置文件中添加对应的命令配置
-3. **生成校验和** - 运行 `python scripts/gen_checksum.py` 更新校验和
-4. **测试功能** - 使用提供的测试脚本验证功能
+Tests cover:
+- ConfigWrapper functionality
+- StickerPackManager operations
+- Pack loading and filtering
+- Auto-update task management
+- Integration between components
 
-## 故障排除
+### Component Demo
 
-### 常见问题
-
-1. **图片生成失败**
-   - 检查是否安装了 Pillow 库
-   - 确认系统有字体文件支持
-   - 检查数据目录权限
-
-2. **在线功能无法使用**
-   - 确认网络连接正常
-   - 检查 API 地址配置
-   - 验证用户权限设置
-
-3. **快捷方式不生效**
-   - 检查表情包是否已启用
-   - 确认命令配置正确
-   - 尝试重载配置
-
-4. **权限问题**
-   - 检查超级用户配置
-   - 确认用户ID设置正确
-   - 验证权限检查逻辑
-
-### 日志调试
-插件使用 AstrBot 的日志系统，可以通过以下方式查看详细日志：
+Run the component demonstration:
 
 ```bash
-# 启动时添加调试参数
-astrbot --log-level DEBUG
-
-# 查看插件特定日志
-grep "MemeMaker" /path/to/astrbot.log
+python demo_components.py
 ```
 
-## 版本历史
+This demonstrates:
+- ConfigWrapper usage
+- StickerPackManager usage
+- Component integration
+- Simulated plugin lifecycle
 
-### v1.3.0 (当前版本)
-- ✅ 完整的在线表情包中心支持
-- ✅ 权限管理和会话确认系统
-- ✅ 图片预览和帮助生成
-- ✅ 异步操作和错误处理
-- ✅ 完整的测试和演示脚本
+### Project Structure
 
-### v1.2.0
-- ✅ 动态快捷方式注册
-- ✅ 多包管理支持
-- ✅ 配置热重载
-- ✅ 基础命令实现
+```
+meme_stickers/
+├── main.py                    # Main plugin code
+├── metadata.yaml              # Plugin metadata
+├── test_smoke.py              # Smoke tests
+├── demo_components.py         # Component demo
+├── PLUGIN_USAGE.md           # Detailed usage guide
+├── TICKET_IMPLEMENTATION.md  # Implementation details
+├── README.md                 # This file
+└── .gitignore               # Git ignore rules
+```
 
-## 贡献指南
+## Core Components
 
-欢迎提交 Issue 和 Pull Request！
+### ConfigWrapper
+Wraps AstrBot configuration and provides convenient access to plugin settings.
 
-1. Fork 项目
-2. 创建特性分支
-3. 提交更改
-4. 发起 Pull Request
+**Key Methods:**
+- `load(config_path)` - Load configuration from file
+- `save(config_path)` - Save configuration to file
+- `get(key, default)` - Get configuration value
+- `set(key, value)` - Set configuration value
 
-## 许可证
+**Properties:**
+- `auto_update` - Whether auto-update is enabled
+- `force_update` - Whether force update is enabled
+- `hub_url` - Hub URL for pack downloads
+- `packs` - Sticker packs configuration
 
-本项目采用 MIT 许可证，详见 LICENSE 文件。
+### StickerPackManager
+Manages sticker pack lifecycle: loading, updating, and metadata.
 
-## 联系方式
+**Key Methods:**
+- `reload()` - Reload all packs from disk
+- `get_pack(name)` - Get specific pack by name
+- `list_packs()` - List all loaded packs
+- `list_enabled_packs()` - List only enabled packs
+- `start_auto_update(force)` - Start auto-update task
+- `stop_auto_update()` - Stop auto-update task
 
-- 作者: kamicry
-- 仓库: https://github.com/kamicry/meme-maker
-- 问题反馈: 请在 GitHub Issues 中提交
+### MemeStickersPlugin
+Main plugin class that integrates all components.
 
----
+**Lifecycle:**
+- `__init__(context, config)` - Initialize plugin
+- `initialize()` - Setup and start services
+- `terminate()` - Cleanup and stop services
 
-**感谢使用 Meme Maker 插件！如果觉得有用，请给个 Star ⭐**
+**Helper Methods:**
+- `_plain(text)` - Create plain text message
+- `_image(path)` - Create image message
+- `_resolve_data_dir()` - Resolve data directory
+
+## API Usage
+
+### Basic Example
+
+```python
+from astrbot.api.star import Context
+from astrbot.api.config import AstrBotConfig
+
+# Plugin is automatically instantiated by AstrBot
+plugin = MemeStickersPlugin(context, config)
+
+# Initialize
+await plugin.initialize()
+
+# Access packs
+packs = plugin.pack_manager.list_packs()
+for pack in packs:
+    print(f"{pack.display_name}: {len(pack.stickers)} stickers")
+
+# Get specific pack
+pack = plugin.pack_manager.get_pack("animals")
+if pack:
+    print(f"Stickers: {', '.join(pack.stickers)}")
+
+# Cleanup
+await plugin.terminate()
+```
+
+## Implementation Details
+
+### Data Directory Resolution
+1. First tries `context.get_data_path()`
+2. Falls back to `data/plugins/meme_stickers`
+3. Creates directory automatically if missing
+
+### Pack Discovery
+- Scans `packs/` directory for subdirectories
+- Each subdirectory must have `metadata.json`
+- Stickers loaded from `stickers/` subdirectory
+- Invalid packs are logged and skipped
+
+### Auto-Update
+When enabled:
+1. Background asyncio task created during initialization
+2. Runs reload every hour (3600 seconds)
+3. Honors `force_update` flag in configuration
+4. Logs operations through AstrBot logger
+5. Gracefully cancelled during termination
+
+## Troubleshooting
+
+### Plugin doesn't initialize
+- Check AstrBot logs for errors
+- Verify directory permissions
+- Ensure data directory is writable
+
+### Packs not loading
+- Check pack directory structure
+- Verify `metadata.json` format
+- Check file permissions
+- Review plugin logs
+
+### Auto-update not working
+- Verify `auto_update: true` in config
+- Check network connectivity (if downloading)
+- Review background task logs
+
+## Contributing
+
+Contributions are welcome! Areas for improvement:
+- Network-based pack downloads
+- Pack installation commands
+- Sticker generation features
+- Pack validation and checksums
+- Cache mechanisms
+
+## License
+
+[MIT License](LICENSE)
+
+## Author
+
+**kamicry**
+
+For more details, see:
+- [PLUGIN_USAGE.md](PLUGIN_USAGE.md) - Detailed usage guide
+- [TICKET_IMPLEMENTATION.md](TICKET_IMPLEMENTATION.md) - Implementation details
+
+## Version History
+
+### v2.0.0 (Current)
+- Complete rewrite with modular architecture
+- ConfigWrapper for configuration management
+- StickerPackManager for pack lifecycle
+- Comprehensive lifecycle hooks
+- Auto-update with background tasks
+- Full smoke test coverage
+
+### v1.3.0 (Previous)
+- Initial implementation with basic features

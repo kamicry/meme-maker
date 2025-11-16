@@ -1,6 +1,6 @@
-name: meme-maker 
-display_name: Meme Maker # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
-desc: 表情包制作插件，支持动态快捷方式注册和多包管理。 # 插件简短描述
-version: v1.3.0 # 插件版本号。格式：v1.1.1 或者 v1.1
+name: meme_stickers 
+display_name: Meme Stickers # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
+desc: Meme Stickers plugin for AstrBot with pack management and generation. # 插件简短描述
+version: v2.0.0 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: kamicry
-repo: https://github.com/kamicry/meme-maker
+repo: https://github.com/kamicry/meme-stickers
